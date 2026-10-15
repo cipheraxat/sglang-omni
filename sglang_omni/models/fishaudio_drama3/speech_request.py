@@ -176,6 +176,13 @@ class Drama3SpeechPreprocessor:
                 for field_name in UNSUPPORTED_PARAMS
                 if request.params.get(field_name) is not None
             }
+            # The seed is read from params; one only in tts_params would be dropped.
+            | (
+                {"seed"}
+                if tts_params.get("seed") is not None
+                and request.params.get("seed") is None
+                else set()
+            )
         )
         voice = tts_params.get("voice")
         is_default_voice = voice is None or (

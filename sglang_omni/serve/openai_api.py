@@ -77,7 +77,7 @@ from sglang_omni.http.admin_auth import (
 )
 from sglang_omni.http.favicon import register_favicon
 from sglang_omni.proto.admin import AdminResponse
-from sglang_omni.sampling.seed import new_random_sampling_seed
+from sglang_omni.sampling.seed import resolve_row_seed
 from sglang_omni.serve.diarizations import register_diarizations
 from sglang_omni.serve.openai_errors import generation_error_status_code
 from sglang_omni.serve.protocol import (
@@ -1516,10 +1516,10 @@ def register_speech(app: FastAPI) -> None:
                 speech_service.parse_generation_request, payload
             )
             req = prepared.request
-            # Only this entry echoes the seed, so only it assigns one; batch items
+            # Only this entry echoes the seed, so only it resolves one; batch items
             # and WebSocket sentences keep a fresh seed per request.
-            if req.seed is None and speech_service.assigns_unseeded_seeds:
-                req = req.model_copy(update={"seed": new_random_sampling_seed()})
+            if speech_service.assigns_unseeded_seeds:
+                req = req.model_copy(update={"seed": resolve_row_seed(req.seed)})
             else:
                 pass
             gen_req = speech_service.build_generate_request(
@@ -1537,7 +1537,7 @@ def register_speech(app: FastAPI) -> None:
 
         if req.stream:
             try:
-                return await speech_audio_response(
+                stream_response = await speech_audio_response(
                     request=request,
                     client=client,
                     gen_req=gen_req,
@@ -1545,7 +1545,6 @@ def register_speech(app: FastAPI) -> None:
                     speed=req.speed,
                     speech_stream_outcomes=app.state.speech_stream_outcomes,
                     stream_format=req.stream_format,
-                    seed=req.seed,
                 )
             except ClientError as exc:
                 return speech_generation_failure_response(request_id, exc)
@@ -1555,6 +1554,11 @@ def register_speech(app: FastAPI) -> None:
                     exc,
                     unexpected_message="Error preparing speech stream for request %s",
                 )
+            if speech_service.assigns_unseeded_seeds:
+                stream_response.headers["X-Seed"] = str(req.seed)
+            else:
+                pass
+            return stream_response
         else:
             pass
 
@@ -1583,7 +1587,7 @@ def register_speech(app: FastAPI) -> None:
             # travels in the same X- header channel as usage.
             "X-Finish-Reason": result.finish_reason,
         }
-        if req.seed is not None:
+        if speech_service.assigns_unseeded_seeds:
             headers["X-Seed"] = str(req.seed)
         else:
             pass
@@ -1759,7 +1763,6 @@ async def speech_audio_response(
     stream_format: Literal["audio", "sse"],
     *,
     speech_stream_outcomes: SpeechStreamOutcomes,
-    seed: int | None,
 ) -> StreamingResponse:
     """Stream raw PCM or SSE events once the first audio chunk sets the headers."""
     emitted_samples = 0
@@ -1936,10 +1939,6 @@ async def speech_audio_response(
         "X-Channels": "1",
         "X-Bit-Depth": "16",
     }
-    if seed is not None:
-        headers["X-Seed"] = str(seed)
-    else:
-        pass
     if stream_format == "sse":
         return _ClosableStreamingResponse(
             _sse_body(), media_type="text/event-stream", headers=headers

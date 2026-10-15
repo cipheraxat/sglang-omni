@@ -275,6 +275,16 @@ def test_seeds_that_are_not_non_negative_integers_are_bad_requests(
     assert error in refused(speech_preprocessor(tokenizer), payload)
 
 
+def test_a_seed_only_in_tts_params_is_a_bad_request(tokenizer: Tokenizer) -> None:
+    """The preprocessor reads seed from params, so it refuses one it would drop."""
+    payload = lowered({"input": "hello"})
+    tts_params = payload.request.metadata["tts_params"]
+    assert isinstance(tts_params, dict)
+    tts_params["seed"] = 7
+
+    assert "seed not supported" in refused(speech_preprocessor(tokenizer), payload)
+
+
 def test_a_generate_request_keeps_its_set_fields_and_max_tokens(
     tokenizer: Tokenizer,
 ) -> None:
