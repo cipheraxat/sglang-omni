@@ -69,7 +69,6 @@ from sglang_omni.models.fishaudio_drama3.sampling import (
     EMPTY_RAS_SLOT,
     RAS_WINDOW_FRAMES,
 )
-from sglang_omni.models.fishaudio_drama3.sampling_kernels import PHILOX_SEED_MODULUS
 from sglang_omni.models.fishaudio_drama3.sglang_model import (
     Drama3DecodeBuffers,
     Drama3ForCausalLM,
@@ -159,6 +158,7 @@ def generation_input(prompt_rows: torch.Tensor) -> Drama3GenerationInput:
         temperature=0.8,
         top_k=5,
         top_p=0.9,
+        seed=7,
     )
 
 
@@ -731,6 +731,7 @@ def step_inputs(
         temperature=torch.ones(request_count),
         top_k=torch.ones(request_count, dtype=torch.int64),
         top_p=torch.ones(request_count),
+        seeds=torch.zeros(request_count, dtype=torch.int64),
     )
 
 
@@ -796,7 +797,7 @@ class StagedRows:
 
     frames: list[list[int]]
     ras_windows: list[list[int]]
-    sampling_knobs: list[tuple[float, int, float]]
+    sampling_knobs: list[tuple[float, int, float, int]]
 
 
 def staged_rows(buffers: Drama3DecodeBuffers, row_count: int) -> StagedRows:
@@ -808,6 +809,7 @@ def staged_rows(buffers: Drama3DecodeBuffers, row_count: int) -> StagedRows:
                 buffers.temperature[:row_count].tolist(),
                 buffers.top_k[:row_count].tolist(),
                 buffers.top_p[:row_count].tolist(),
+                buffers.seeds[:row_count].tolist(),
                 strict=True,
             )
         ),
@@ -826,6 +828,7 @@ def pool_rows(
                 state_pool.temperature[rows].tolist(),
                 state_pool.top_k[rows].tolist(),
                 state_pool.top_p[rows].tolist(),
+                state_pool.seeds[rows].tolist(),
                 strict=True,
             )
         ),
@@ -871,6 +874,12 @@ def history_staged_rows(batch_request_data: list[Drama3RequestData]) -> StagedRo
             dtype=torch.float32,
         )
     )
+    buffers.seeds.copy_(
+        torch.tensor(
+            [request_data.seed for request_data in batch_request_data],
+            dtype=torch.int64,
+        )
+    )
     return staged_rows(buffers, row_count)
 
 
@@ -885,6 +894,7 @@ def test_decode_buffers_start_with_valid_sampling_knobs() -> None:
     assert buffers.temperature.tolist() == [1.0] * 3
     assert buffers.top_k.tolist() == [1] * 3
     assert buffers.top_p.tolist() == [1.0] * 3
+    assert buffers.seeds.tolist() == [0] * 3
 
 
 def tower_prefill_of(row_count: int) -> Drama3TowerPrefill:
@@ -947,8 +957,7 @@ def set_up_mocked_model(
     model.audio_decoder = Mock(spec=AudioDecoder)
     model.audio_decoder.codebook_size = codebook_size
     model.audio_decoder.main_token_candidate_ids = torch.arange(codebook_size + 1)
-    model.audio_decoder.sampling_step = torch.zeros((), dtype=torch.int64)
-    model.audio_decoder.sampler = None
+    model.audio_decoder.use_triton_kernels = False
     model.audio_decoder.fused_layers_unsupported_reason.return_value = (
         fused_layers_reason
     )
@@ -1053,25 +1062,20 @@ def test_setup_model_picks_the_codebook_sampler_and_logs_why(
 ) -> None:
     builder, server_args = engine_server_args(tmp_path, {})
     builder.triton_sampling = triton_sampling
-    generator_seed = 2**64 - 5
     monkeypatch.setattr(
         engine_builder,
         "triton_sampling_unsupported_reason",
         Mock(return_value=unsupported_reason),
     )
-    monkeypatch.setattr(torch.cuda, "initial_seed", Mock(return_value=generator_seed))
 
     with caplog.at_level(logging.INFO, logger=engine_builder.logger.name):
         model = set_up_mocked_model(builder, server_args, tmp_path)
 
     assert expected_log in caplog.text
     audio_decoder = model.audio_decoder
-    if triton_sampling and unsupported_reason is None:
-        assert audio_decoder.sampler is not None
-        assert audio_decoder.sampler.step is audio_decoder.sampling_step
-        assert audio_decoder.sampler.seed == generator_seed % PHILOX_SEED_MODULUS
-    else:
-        assert audio_decoder.sampler is None
+    assert audio_decoder.use_triton_kernels == (
+        triton_sampling and unsupported_reason is None
+    )
 
 
 @pytest.mark.parametrize(
@@ -2224,6 +2228,7 @@ def test_placeholder_rows_end_like_first_writes_and_a_dense_recompute() -> None:
             torch.ones(len(lengths)),
             torch.ones(len(lengths), dtype=torch.int64),
             torch.ones(len(lengths)),
+            torch.arange(len(lengths)),
             attention,
         )
 

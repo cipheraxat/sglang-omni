@@ -225,6 +225,64 @@ def test_sampling_takes_the_set_fields_and_drama3_defaults_for_the_rest(
     ) == sampling
 
 
+@pytest.mark.parametrize(
+    ("seed", "resolved_seed"),
+    [
+        pytest.param(0, 0, id="zero"),
+        pytest.param(1234, 1234, id="small"),
+        pytest.param(2**40 + 5, 5, id="masked-to-int31"),
+    ],
+)
+def test_a_given_seed_becomes_the_int31_that_fixes_the_draws(
+    tokenizer: Tokenizer, seed: int, resolved_seed: int
+) -> None:
+    generation_input = generation_input_of(
+        speech_preprocessor(tokenizer)(lowered({"input": "hello", "seed": seed}))
+    )
+
+    assert generation_input.seed == resolved_seed
+
+
+def test_requests_without_a_seed_get_fresh_int31_seeds(tokenizer: Tokenizer) -> None:
+    preprocessor = speech_preprocessor(tokenizer)
+
+    seeds = [
+        generation_input_of(preprocessor(lowered({"input": "hello"}))).seed
+        for _ in range(4)
+    ]
+
+    assert all(0 <= seed <= 2**31 - 1 for seed in seeds)
+    assert len(set(seeds)) > 1
+
+
+@pytest.mark.parametrize("location", ["params", "tts_params"])
+@pytest.mark.parametrize(
+    "seed",
+    [
+        pytest.param(-1, id="negative"),
+        pytest.param(True, id="bool"),
+        pytest.param(1.5, id="float"),
+        pytest.param("7", id="string"),
+    ],
+)
+def test_seeds_that_are_not_non_negative_integers_are_bad_requests(
+    tokenizer: Tokenizer, location: Literal["params", "tts_params"], seed: object
+) -> None:
+    """Covers callers that skip the speech entry, which validates seed itself."""
+    payload = lowered({"input": "hello"})
+    fields = (
+        payload.request.params
+        if location == "params"
+        else payload.request.metadata["tts_params"]
+    )
+    assert isinstance(fields, dict)
+    fields["seed"] = seed
+
+    assert "seed must be a non-negative integer" in refused(
+        speech_preprocessor(tokenizer), payload
+    )
+
+
 def test_a_generate_request_keeps_its_set_fields_and_max_tokens(
     tokenizer: Tokenizer,
 ) -> None:
@@ -337,7 +395,6 @@ def test_base_requests_with_the_default_voice_are_accepted(
 
 TWO_FRAME_CODES = clip_codes(2, 0).tolist()
 REFUSED_REQUESTS = [
-    pytest.param({"seed": 0}, "seed not supported", id="zero-seed"),
     pytest.param(
         {"instructions": "whisper"}, "instructions not supported", id="instructions"
     ),
@@ -416,7 +473,6 @@ def test_requests_the_model_cannot_honor_are_bad_requests(
         pytest.param("tts_params", "language", "English", id="language"),
         pytest.param("tts_params", "x_vector_only_mode", False, id="false-x-vector"),
         pytest.param("tts_params", "token_count", 0, id="zero-token-count"),
-        pytest.param("params", "seed", 0, id="zero-seed"),
         pytest.param("params", "stage_params", {}, id="empty-stage-params"),
         pytest.param("params", "stage_sampling", {}, id="empty-stage-sampling"),
     ],

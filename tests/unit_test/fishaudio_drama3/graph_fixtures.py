@@ -50,6 +50,7 @@ class GraphRequestSpec(BaseModel):
     temperature: float = 1.0
     top_k: int = 1
     top_p: float = 1.0
+    seed: int = 0
     # Frame index whose end-of-speech logit the test forces; None blocks it.
     end_at_frame: int | None = None
     # The runner aborts the request once it has sampled this many frames.
@@ -144,7 +145,6 @@ class GraphForwardRecord:
     first_frame_sampler_calls: int
     first_frame_kv_splits: list[int]
     generator_offset: int
-    sampling_step: int
     lean_choices: list[LeanChoice]
     steps: list[GraphRequestStep]
     stray_kv_slots: list[int]
@@ -230,6 +230,7 @@ def random_wave(prompt_names: list[str]) -> list[GraphRequestSpec]:
             temperature=TEMPERATURES[index % len(TEMPERATURES)],
             top_k=TOP_KS[index % len(TOP_KS)],
             top_p=TOP_PS[(index + 1) % len(TOP_PS)],
+            seed=index + 1,
         )
         for index, prompt_name in enumerate(prompt_names)
     ]

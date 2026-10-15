@@ -34,6 +34,8 @@ VOCODER_STAGE = "vocoder"
 class Drama3GenerationInput:
     """One request: prompt frame rows [rows, 1 + num_codebooks] and sampling knobs.
 
+    seed is the non-negative int31 that, with the row's position, fixes every draw.
+
     max_new_tokens None lets the engine fill the remaining context, up to its cap.
     """
 
@@ -42,6 +44,7 @@ class Drama3GenerationInput:
     temperature: float
     top_k: int
     top_p: float
+    seed: int
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -60,6 +63,7 @@ class Drama3RequestData(SGLangARRequestData):
     frame_rows: list[list[int]] = field(default_factory=list)
     prompt_row_count: int = 0
     streamed_frame_count: int = 0
+    seed: int = 0
 
 
 class Drama3RequestBuilder:
@@ -216,6 +220,7 @@ class Drama3RequestBuilder:
             top_p=generation_input.top_p,
             frame_rows=frame_rows,
             prompt_row_count=len(frame_rows),
+            seed=generation_input.seed,
         )
 
 

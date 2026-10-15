@@ -28,6 +28,7 @@ from sglang_omni.models.fishaudio_s2_pro.stages import (
     fish_reference_payload_is_supported,
 )
 from sglang_omni.proto.request import StagePayload
+from sglang_omni.sampling.seed import resolve_row_seed
 from sglang_omni.scheduling.reference_encoder import ReferenceEncodeService
 
 DEFAULT_TEMPERATURE = 1.0
@@ -43,9 +44,8 @@ UNSUPPORTED_TTS_PARAMS = (
     "token_count",
     "duration_tokens",
     "initial_codec_chunk_frames",
-    "seed",
 )
-UNSUPPORTED_PARAMS = ("seed", "stage_params", "stage_sampling")
+UNSUPPORTED_PARAMS = ("stage_params", "stage_sampling")
 INT64_LIMITS = torch.iinfo(torch.int64)
 
 
@@ -77,6 +77,23 @@ def given_integer(
         )
     else:
         return value
+
+
+def request_seed(params: Mapping[str, object], tts_params: Mapping[str, object]) -> int:
+    """The caller's seed masked to an int31, else a fresh random one."""
+    seed = params.get("seed")
+    if seed is None:
+        seed = tts_params.get("seed")
+    else:
+        pass
+    if seed is None:
+        return resolve_row_seed(None)
+    elif isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise ValueError(
+            f"{REQUEST_ERROR_PREFIX} seed must be a non-negative integer; got {seed!r}"
+        )
+    else:
+        return resolve_row_seed(seed)
 
 
 def speech_inputs(inputs: object) -> tuple[str, list[Mapping[str, object]]]:
@@ -203,6 +220,7 @@ class Drama3SpeechPreprocessor:
         top_k = given_integer(request.params, "top_k", DEFAULT_TOP_K)
         assert top_k is not None
         max_new_tokens = given_integer(request.params, "max_new_tokens", None)
+        seed = request_seed(request.params, tts_params)
         repetition_penalty = given_number(request.params, "repetition_penalty", 1.0)
         if repetition_penalty != 1.0:
             raise ValueError(
@@ -271,6 +289,7 @@ class Drama3SpeechPreprocessor:
                 temperature=temperature,
                 top_k=top_k,
                 top_p=top_p,
+                seed=seed,
             ),
         )
 
