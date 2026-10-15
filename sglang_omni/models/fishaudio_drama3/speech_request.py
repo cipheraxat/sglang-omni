@@ -79,23 +79,6 @@ def given_integer(
         return value
 
 
-def request_seed(params: Mapping[str, object], tts_params: Mapping[str, object]) -> int:
-    """The caller's seed masked to an int31, else a fresh random one."""
-    seed = params.get("seed")
-    if seed is None:
-        seed = tts_params.get("seed")
-    else:
-        pass
-    if seed is None:
-        return resolve_row_seed(None)
-    elif isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
-        raise ValueError(
-            f"{REQUEST_ERROR_PREFIX} seed must be a non-negative integer; got {seed!r}"
-        )
-    else:
-        return resolve_row_seed(seed)
-
-
 def speech_inputs(inputs: object) -> tuple[str, list[Mapping[str, object]]]:
     """The text to speak and the reference descriptors of a lowered speech prompt."""
     if isinstance(inputs, str):
@@ -220,7 +203,13 @@ class Drama3SpeechPreprocessor:
         top_k = given_integer(request.params, "top_k", DEFAULT_TOP_K)
         assert top_k is not None
         max_new_tokens = given_integer(request.params, "max_new_tokens", None)
-        seed = request_seed(request.params, tts_params)
+        seed = given_integer(request.params, "seed", None)
+        if seed is not None and seed < 0:
+            raise ValueError(
+                f"{REQUEST_ERROR_PREFIX} seed must be a non-negative integer; got {seed}"
+            )
+        else:
+            pass
         repetition_penalty = given_number(request.params, "repetition_penalty", 1.0)
         if repetition_penalty != 1.0:
             raise ValueError(
@@ -289,7 +278,7 @@ class Drama3SpeechPreprocessor:
                 temperature=temperature,
                 top_k=top_k,
                 top_p=top_p,
-                seed=seed,
+                seed=resolve_row_seed(seed),
             ),
         )
 

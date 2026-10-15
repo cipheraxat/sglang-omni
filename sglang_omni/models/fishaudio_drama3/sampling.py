@@ -35,11 +35,13 @@ def multiply_high_and_low(
     multiplier: int, values: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """High and low 32 bits of multiplier * values for uint32 values held in int64."""
+    # note (cipheraxat): the product can pass 2**63; int64 multiply wraps, so its
+    # low 64 bits, which are all that is read, stay exact.
     product = values * multiplier
     return (product >> 32) & UINT32_MASK, product & UINT32_MASK
 
 
-def exponential_noise(
+def philox_exponential_noise(
     seeds: torch.Tensor,
     positions: torch.Tensor,
     stream_id: int,
@@ -118,7 +120,7 @@ def sample_top_k_top_p(
         sorted_logits.masked_fill(is_dropped, float("-inf")), dim=-1
     )
     sorted_noise = torch.gather(
-        exponential_noise(seeds, positions, stream_id, logits.shape[-1]),
+        philox_exponential_noise(seeds, positions, stream_id, logits.shape[-1]),
         -1,
         sorted_token_ids,
     )

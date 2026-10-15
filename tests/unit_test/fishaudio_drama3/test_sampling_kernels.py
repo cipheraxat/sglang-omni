@@ -15,11 +15,7 @@ from sglang_omni.models.fishaudio_drama3.sampling import (
     RAS_TOP_K,
     RAS_TOP_P,
     RAS_WINDOW_FRAMES,
-)
-from sglang_omni.models.fishaudio_drama3.sampling import (
-    exponential_noise as pytorch_exponential_noise,
-)
-from sglang_omni.models.fishaudio_drama3.sampling import (
+    philox_exponential_noise,
     sample_semantic_with_ras,
     sample_top_k_top_p,
 )
@@ -392,7 +388,7 @@ def test_pytorch_noise_matches_the_kernel_noise(stream_id: int) -> None:
     keys = draw_keys(7, rows)
 
     torch.testing.assert_close(
-        pytorch_exponential_noise(keys.seeds, keys.positions, stream_id, width),
+        philox_exponential_noise(keys.seeds, keys.positions, stream_id, width),
         kernel_noise(keys, stream_id, rows, width),
         rtol=1e-5,
         atol=0.0,

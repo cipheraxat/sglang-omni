@@ -14,7 +14,6 @@ from sglang_omni.client import audio as client_audio
 from sglang_omni.client.client import build_params
 from sglang_omni.config import CustomVoiceConfig
 from sglang_omni.preprocessing import resource_connector
-from sglang_omni.sampling.seed import SAMPLING_SEED_MASK
 from sglang_omni.serve import speech_service
 from sglang_omni.serve.protocol import CreateSpeechRequest
 from sglang_omni.serve.speech_errors import SpeechAPIError
@@ -509,35 +508,27 @@ def test_speech_fields_without_a_supported_set_keep_ignoring_extras(
     assert service.parse_raw_request({"input": "hello", **fields}).input == "hello"
 
 
-def test_a_seed_declaring_pipeline_gives_unseeded_requests_a_seed() -> None:
+def test_only_a_seed_declaring_pipeline_assigns_unseeded_seeds() -> None:
+    assert SpeechRequestValidator(
+        default_model="tts", supported_speech_fields=SEEDED_SPEECH_FIELDS
+    ).assigns_unseeded_seeds
+    assert not SpeechRequestValidator(
+        default_model="tts", supported_speech_fields=SUPPORTED_SPEECH_FIELDS
+    ).assigns_unseeded_seeds
+    assert not SpeechRequestValidator(default_model="tts").assigns_unseeded_seeds
+
+
+def test_preparing_a_speech_request_keeps_its_seed_as_given() -> None:
+    """The HTTP entry assigns missing seeds; shared preparation never does."""
     service = SpeechRequestValidator(
         default_model="tts", supported_speech_fields=SEEDED_SPEECH_FIELDS
     )
 
-    seeds = [
-        service.parse_generation_request({"input": "hello"}).request.seed
-        for _ in range(4)
-    ]
-    prepared = service.parse_generation_request({"input": "hello"})
-    params = build_params(
-        service.build_generate_request(prepared.request, validate=False)
-    )
-
-    assert all(seed is not None and 0 <= seed <= SAMPLING_SEED_MASK for seed in seeds)
-    assert len(set(seeds)) > 1
-    assert params["seed"] == prepared.request.seed
-
-
-def test_a_given_seed_is_kept_and_undeclared_pipelines_assign_none() -> None:
-    seeded = SpeechRequestValidator(
-        default_model="tts", supported_speech_fields=SEEDED_SPEECH_FIELDS
-    )
-    undeclared = SpeechRequestValidator(default_model="tts")
-
     assert (
-        seeded.parse_generation_request({"input": "hello", "seed": 7}).request.seed == 7
+        service.parse_generation_request({"input": "hello", "seed": 7}).request.seed
+        == 7
     )
-    assert undeclared.parse_generation_request({"input": "hello"}).request.seed is None
+    assert service.parse_generation_request({"input": "hello"}).request.seed is None
 
 
 def test_supported_speech_fields_treat_null_protocol_fields_as_unset() -> None:

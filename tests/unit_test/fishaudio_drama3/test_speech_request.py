@@ -255,32 +255,24 @@ def test_requests_without_a_seed_get_fresh_int31_seeds(tokenizer: Tokenizer) -> 
     assert len(set(seeds)) > 1
 
 
-@pytest.mark.parametrize("location", ["params", "tts_params"])
 @pytest.mark.parametrize(
-    "seed",
+    ("seed", "error"),
     [
-        pytest.param(-1, id="negative"),
-        pytest.param(True, id="bool"),
-        pytest.param(1.5, id="float"),
-        pytest.param("7", id="string"),
+        pytest.param(-1, "seed must be a non-negative integer", id="negative"),
+        pytest.param(True, "seed must be an integer", id="bool"),
+        pytest.param(1.5, "seed must be an integer", id="float"),
+        pytest.param("7", "seed must be an integer", id="string"),
     ],
 )
 def test_seeds_that_are_not_non_negative_integers_are_bad_requests(
-    tokenizer: Tokenizer, location: Literal["params", "tts_params"], seed: object
+    tokenizer: Tokenizer, seed: object, error: str
 ) -> None:
     """Covers callers that skip the speech entry, which validates seed itself."""
     payload = lowered({"input": "hello"})
-    fields = (
-        payload.request.params
-        if location == "params"
-        else payload.request.metadata["tts_params"]
-    )
-    assert isinstance(fields, dict)
-    fields["seed"] = seed
+    assert isinstance(payload.request.params, dict)
+    payload.request.params["seed"] = seed
 
-    assert "seed must be a non-negative integer" in refused(
-        speech_preprocessor(tokenizer), payload
-    )
+    assert error in refused(speech_preprocessor(tokenizer), payload)
 
 
 def test_a_generate_request_keeps_its_set_fields_and_max_tokens(

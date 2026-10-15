@@ -236,8 +236,8 @@ def random_wave(prompt_names: list[str]) -> list[GraphRequestSpec]:
     ]
 
 
-# Random sampling only at batch sizes with their own graph, first, while both
-# engines have drawn the same random numbers.
+# Random sampling only at batch sizes with their own graph; each request's seed
+# fixes its draws, so the eager and graph engines sample the same frames.
 RANDOM_WAVES = GraphScenario(
     name="random_waves",
     sampling_mode="random",

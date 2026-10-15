@@ -124,7 +124,7 @@ MAX_NEW_TOKENS_CAP = 16
 SERVING_PROMPT_CAP_ROWS = 8192
 # The new-frame cap the serving contract asks for by default.
 SERVING_MAX_NEW_TOKENS_CAP = 2048
-SamplingField = Literal["max_new_tokens", "temperature", "top_k", "top_p"]
+SamplingField = Literal["max_new_tokens", "temperature", "top_k", "top_p", "seed"]
 
 
 class GenerationInputChange(Protocol):
@@ -281,6 +281,8 @@ REJECTED_INPUTS = [
     pytest.param(changed_field("top_k", 2**31), "top_k", id="top-k-past-int32"),
     pytest.param(changed_field("top_p", 0.0), "top_p", id="zero-top-p"),
     pytest.param(changed_field("top_p", 1.5), "top_p", id="top-p-above-one"),
+    pytest.param(changed_field("seed", -1), "seed", id="negative-seed"),
+    pytest.param(changed_field("seed", 2**31), "seed", id="seed-past-int31"),
 ]
 
 
@@ -2282,6 +2284,63 @@ def test_placeholder_rows_end_like_first_writes_and_a_dense_recompute() -> None:
         torch.testing.assert_close(
             cached, tower_cache(dense_attention)[slot], rtol=0, atol=1e-4
         )
+
+
+@torch_fused_op_backend()
+def test_a_request_samples_the_same_frame_alone_or_in_any_batch() -> None:
+    """Draws depend on each row's seed and position, so batch neighbours and row
+    order leave a request's frame unchanged."""
+    decoder = loaded_decoder(random_checkpoint(seed=0), torch.float32, "cpu")
+    lengths = [6, 2, 3]
+    request_ids = ["a", "b", "c"]
+    frames = torch.tensor(sum(frame_rows_of(lengths, seed=7), []))
+    row_request_ids = [
+        request_id
+        for request_id, length in zip(request_ids, lengths, strict=True)
+        for _ in range(length)
+    ]
+    positions = torch.tensor([row for length in lengths for row in range(length)])
+    last_rows = torch.cumsum(torch.tensor(lengths), dim=0) - 1
+    generator = torch.Generator().manual_seed(8)
+    hidden_states = torch.randn(frames.shape[0], DIM, generator=generator)
+    semantic_logits = torch.randn(len(lengths), TEXT_VOCAB_SIZE, generator=generator)
+    seeds = torch.tensor([11, 22, 33])
+
+    def sample(requests: list[int]) -> torch.Tensor:
+        attention = DenseAttention(
+            head_count=HEAD_COUNT, kv_head_count=KV_HEAD_COUNT, head_dim=HEAD_DIM
+        )
+        attention.bind(row_request_ids, positions.tolist())
+        decoder.prefill(
+            hidden_states,
+            positions,
+            frames,
+            next_frame_labels(frames, last_rows, EOS_TOKEN_ID),
+            attention,
+        )
+        selected = torch.tensor(requests)
+        selected_rows = last_rows[selected]
+        attention.bind(
+            [request_ids[request] for request in requests],
+            positions[selected_rows].tolist(),
+        )
+        return decoder.decode_step(
+            semantic_logits[selected],
+            hidden_states[selected_rows],
+            positions[selected_rows],
+            frames[selected_rows],
+            torch.full((len(requests), 16), EMPTY_RAS_SLOT),
+            torch.ones(len(requests)),
+            torch.full((len(requests),), 30, dtype=torch.int64),
+            torch.full((len(requests),), 0.9),
+            seeds[selected],
+            attention,
+        )
+
+    batch_frames = sample([0, 1, 2])
+
+    assert torch.equal(sample([1]), batch_frames[1:2])
+    assert torch.equal(sample([2, 0]), batch_frames[[2, 0]])
 
 
 def test_model_rejects_a_tower_that_cannot_share_the_backbone_pool() -> None:

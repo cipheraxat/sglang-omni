@@ -77,6 +77,7 @@ from sglang_omni.http.admin_auth import (
 )
 from sglang_omni.http.favicon import register_favicon
 from sglang_omni.proto.admin import AdminResponse
+from sglang_omni.sampling.seed import new_random_sampling_seed
 from sglang_omni.serve.diarizations import register_diarizations
 from sglang_omni.serve.openai_errors import generation_error_status_code
 from sglang_omni.serve.protocol import (
@@ -1515,6 +1516,12 @@ def register_speech(app: FastAPI) -> None:
                 speech_service.parse_generation_request, payload
             )
             req = prepared.request
+            # Only this entry echoes the seed, so only it assigns one; batch items
+            # and WebSocket sentences keep a fresh seed per request.
+            if req.seed is None and speech_service.assigns_unseeded_seeds:
+                req = req.model_copy(update={"seed": new_random_sampling_seed()})
+            else:
+                pass
             gen_req = speech_service.build_generate_request(
                 req,
                 validate=False,

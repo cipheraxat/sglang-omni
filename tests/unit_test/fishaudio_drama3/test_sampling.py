@@ -16,7 +16,7 @@ from sglang_omni.models.fishaudio_drama3.sampling import (
     RAS_TEMPERATURE,
     RAS_TOP_K,
     RAS_TOP_P,
-    exponential_noise,
+    philox_exponential_noise,
     sample_semantic_with_ras,
     sample_top_k_top_p,
 )
@@ -272,7 +272,7 @@ def test_ras_keeps_repeated_eos_and_replaces_repeated_semantic(band_edge: str) -
 
 def test_noise_follows_the_philox_known_answer() -> None:
     """Philox-4x32-10 with an all-zero counter and key starts with 0x6627e8d5."""
-    noise = exponential_noise(
+    noise = philox_exponential_noise(
         torch.zeros(1, dtype=torch.int64), torch.zeros(1, dtype=torch.int64), 0, 1
     )
 

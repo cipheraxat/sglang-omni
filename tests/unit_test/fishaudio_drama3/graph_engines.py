@@ -545,8 +545,8 @@ def run_engine(spec: GraphEngineSpec) -> GraphEngineRun:
     assert isinstance(runner, GraphRecordingRunner)
     runner.abort_inbox = scheduler.inbox
     runner.lean_choice_recorder = builder.lean_choice_recorder
-    # Graph capture drew random numbers after the worker seeded them; both
-    # engines start serving from the same generator state.
+    # Sampling draws from request seeds, not this generator; reseeding it keeps
+    # any other random use in step across the two engines.
     torch.manual_seed(spec.random_seed)
     facts = engine_facts(scheduler, model, builder)
     logger.info(f"Drama 3 graph test engine ({spec.kind}): {facts}")
