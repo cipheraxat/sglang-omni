@@ -1538,6 +1538,7 @@ def register_speech(app: FastAPI) -> None:
                     speed=req.speed,
                     speech_stream_outcomes=app.state.speech_stream_outcomes,
                     stream_format=req.stream_format,
+                    seed=req.seed,
                 )
             except ClientError as exc:
                 return speech_generation_failure_response(request_id, exc)
@@ -1575,6 +1576,10 @@ def register_speech(app: FastAPI) -> None:
             # travels in the same X- header channel as usage.
             "X-Finish-Reason": result.finish_reason,
         }
+        if req.seed is not None:
+            headers["X-Seed"] = str(req.seed)
+        else:
+            pass
         if result.usage is not None:
             headers.update(
                 {
@@ -1747,6 +1752,7 @@ async def speech_audio_response(
     stream_format: Literal["audio", "sse"],
     *,
     speech_stream_outcomes: SpeechStreamOutcomes,
+    seed: int | None,
 ) -> StreamingResponse:
     """Stream raw PCM or SSE events once the first audio chunk sets the headers."""
     emitted_samples = 0
@@ -1923,6 +1929,10 @@ async def speech_audio_response(
         "X-Channels": "1",
         "X-Bit-Depth": "16",
     }
+    if seed is not None:
+        headers["X-Seed"] = str(seed)
+    else:
+        pass
     if stream_format == "sse":
         return _ClosableStreamingResponse(
             _sse_body(), media_type="text/event-stream", headers=headers

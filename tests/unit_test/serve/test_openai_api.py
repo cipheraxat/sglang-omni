@@ -1000,6 +1000,7 @@ def test_speech_endpoint_returns_binary_audio() -> None:
     assert response.headers["x-sglang-omni-output-tokens"] == "2"
     assert response.headers["x-sglang-omni-total-tokens"] == "7"
     assert response.headers["x-request-id"].startswith("speech-")
+    assert "x-seed" not in response.headers
     assert speech_client.speech_requests[0].model == "tts"
     assert isinstance(speech_client.speech_requests[0].metadata["tts_params"], dict)
     assert speech_client.speech_requests[0].metadata["tts_params"]["voice"] == "default"
@@ -1823,7 +1824,9 @@ def test_raw_pcm_response_close_aborts_inner_speech_stream() -> None:
             speed=1.0,
             speech_stream_outcomes=speech_stream_outcomes,
             stream_format="audio",
+            seed=None,
         )
+        assert "X-Seed" not in response.headers
         body = response.body_iterator
         assert await anext(body) == encode_pcm([0.0, 0.1, -0.1, 0.0], 24000)
         await body.aclose()
@@ -1846,6 +1849,7 @@ def test_raw_pcm_response_disconnect_before_first_chunk_aborts_request() -> None
                 speed=1.0,
                 speech_stream_outcomes=SpeechStreamOutcomes(max_entries=8),
                 stream_format="audio",
+                seed=None,
             )
         )
         await client.started.wait()
@@ -1928,7 +1932,9 @@ def test_sse_speech_response_close_aborts_inner_speech_stream() -> None:
             speed=1.0,
             stream_format="sse",
             speech_stream_outcomes=SpeechStreamOutcomes(max_entries=8),
+            seed=1234,
         )
+        assert response.headers["X-Seed"] == "1234"
         body = response.body_iterator
         assert (await anext(body)).startswith("data: ")
         await body.aclose()
@@ -2120,6 +2126,28 @@ def test_supported_speech_fields_refuse_an_unknown_field_before_generation(
     assert response.json()["error"]["param"] == "stage_sampling"
     assert client_impl.generate_requests == []
     assert client_impl.speech_requests == []
+
+
+def test_speech_echoes_the_seed_it_generated_with() -> None:
+    """A pipeline that declares seed gets one for every request, given or not."""
+    speech_client = SuccessfulSpeechClient()
+    client = TestClient(
+        create_app(
+            speech_client,
+            model_name="tts",
+            supported_speech_fields=frozenset({"model", "input", "seed"}),
+        )
+    )
+
+    given = client.post("/v1/audio/speech", json={"input": "hello", "seed": 42})
+    assigned = client.post("/v1/audio/speech", json={"input": "hello"})
+
+    assert given.status_code == assigned.status_code == 200
+    assert given.headers["x-seed"] == "42"
+    assert speech_client.speech_requests[0].sampling.seed == 42
+    assert speech_client.speech_requests[1].sampling.seed == int(
+        assigned.headers["x-seed"]
+    )
 
 
 def test_speech_request_passes_only_the_set_sampling_fields() -> None:

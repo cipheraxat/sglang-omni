@@ -20,6 +20,7 @@ from sglang_omni.client.audio import audio_encoding_unavailable_reason
 from sglang_omni.config.schema import MAX_SPEECH_INPUT_CHARS, CustomVoiceConfig
 from sglang_omni.preprocessing.base import MediaIO
 from sglang_omni.preprocessing.resource_connector import MultiModalResourceConnector
+from sglang_omni.sampling.seed import new_random_sampling_seed
 from sglang_omni.scheduling.streaming_vocoder import INITIAL_CODEC_CHUNK_FRAMES_PARAM
 from sglang_omni.serve.protocol import (
     DEFAULT_TTS_BATCH_MAX_ITEMS,
@@ -107,6 +108,7 @@ class SpeechRequestUpdates(TypedDict, total=False):
     language: str
     ref_audio: str
     references: list[SpeechReference]
+    seed: int
 
 
 @dataclass(frozen=True)
@@ -207,6 +209,11 @@ class SpeechRequestValidator:
         )
         self.tts_batch_max_items = int(tts_batch_max_items)
         self.supported_speech_fields = supported_speech_fields
+        # A pipeline that declares seed honors it, so an unseeded request gets a
+        # seed the response can echo for replaying the take.
+        self.assigns_unseeded_seeds = (
+            supported_speech_fields is not None and "seed" in supported_speech_fields
+        )
 
     def parse_request(self, payload: object) -> CreateSpeechRequest:
         """Parse and validate a raw HTTP payload."""
@@ -361,6 +368,10 @@ class SpeechRequestValidator:
             param=INITIAL_CODEC_CHUNK_FRAMES_PARAM,
         )
         validate_non_negative_int(request.seed, param="seed")
+        if request.seed is None and self.assigns_unseeded_seeds:
+            updates["seed"] = new_random_sampling_seed()
+        else:
+            pass
         return updates
 
     def validate_custom_voice_request(

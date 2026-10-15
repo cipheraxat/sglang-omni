@@ -133,7 +133,7 @@ K5 chains a second edit: `by noon` becomes `by five`, with both earlier takes in
 
 ## Reproducible Sampling
 
-`/v1/audio/speech` accepts a non-negative integer `seed`. A request without one gets a fresh random seed, so unseeded requests stay random.
+`/v1/audio/speech` accepts a non-negative integer `seed`. A request without one gets a fresh random seed, so unseeded requests stay random. Every response, streaming or not, returns the seed it was generated with in the `X-Seed` header, so a take you like can be replayed by sending that value back as `seed`.
 
 ```json
 {"model": "drama-3", "input": "Hello there.", "seed": 1234}
