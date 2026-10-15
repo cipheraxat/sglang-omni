@@ -278,6 +278,7 @@ def test_every_supported_speech_field_is_accepted() -> None:
             "top_p": 0.9,
             "top_k": 30,
             "repetition_penalty": 1.0,
+            "seed": 1234,
         }
     )
     validator.parse_raw_request({"input": "hello", "speaker": "default"})
@@ -288,7 +289,6 @@ def test_every_supported_speech_field_is_accepted() -> None:
     [
         ("instructions", "whisper"),
         ("language", "English"),
-        ("seed", 0),
         ("stage_params", {}),
         ("x_vector_only_mode", False),
         ("stream_codec_output", False),
