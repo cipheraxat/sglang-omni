@@ -46,6 +46,10 @@ __all__ = [
     "norm_weights",
 ]
 
+# note (SunskyXH): the codebook heads draw with top-k at most 30 whatever the
+# request asks; wider caps there cost speaker similarity.
+CODEBOOK_TOP_K = 30
+
 
 class AudioDecoder(nn.Module):
     """Frame embeddings and the codebook tower of Drama 3.
@@ -338,6 +342,7 @@ class AudioDecoder(nn.Module):
             attention,
             True,
         )
+        codebook_top_k = top_k.clamp(max=CODEBOOK_TOP_K)
         codes = [codebook_zero]
         for residual_index, (layer, head) in enumerate(
             zip(self.residual_layers, self.codebook_heads)
@@ -357,7 +362,7 @@ class AudioDecoder(nn.Module):
                 sample_top_k_top_p(
                     head(hidden_states),
                     temperature,
-                    top_k,
+                    codebook_top_k,
                     top_p,
                     seeds,
                     positions,
