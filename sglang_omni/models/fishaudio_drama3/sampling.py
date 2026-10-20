@@ -85,11 +85,13 @@ def sample_top_k_top_p(
     positions: torch.Tensor,
     use_triton_kernels: bool,
     stream_id: int,
+    *,
+    keep_top_p_crossing_token: bool = False,
 ) -> torch.Tensor:
     """Sample one token per row in fp32, drawing from the row's seed and position.
 
-    Drop ranks >= top_k and tokens whose inclusive cumulative probability exceeds
-    top_p; always keep rank 0.
+    Acoustic heads exclude the top-p crossing token. Semantic draws retain it;
+    both policies respect top-k and always keep rank 0.
     """
     if use_triton_kernels:
         return sample_codebook_head(
@@ -101,6 +103,7 @@ def sample_top_k_top_p(
             positions,
             stream_id,
             MINIMUM_TEMPERATURE,
+            keep_top_p_crossing_token=keep_top_p_crossing_token,
         )
     else:
         pass
@@ -112,9 +115,12 @@ def sample_top_k_top_p(
         torch.softmax(sorted_logits, dim=-1), dim=-1
     )
     ranks = torch.arange(sorted_logits.shape[-1], device=logits.device).unsqueeze(0)
-    is_dropped = (cumulative_probabilities > top_p.float().unsqueeze(-1)) | (
-        ranks >= top_k.unsqueeze(-1)
-    )
+    is_dropped = cumulative_probabilities > top_p.float().unsqueeze(-1)
+    if keep_top_p_crossing_token:
+        is_dropped[:, 1:] = is_dropped[:, :-1].clone()
+    else:
+        pass
+    is_dropped |= ranks >= top_k.unsqueeze(-1)
     is_dropped[:, 0] = False
     probabilities = torch.softmax(
         sorted_logits.masked_fill(is_dropped, float("-inf")), dim=-1
@@ -180,6 +186,7 @@ def sample_semantic_with_ras(
             positions,
             False,
             FIRST_DRAW_STREAM,
+            keep_top_p_crossing_token=True,
         )
     ]
     row_count = candidate_logits.shape[0]
@@ -196,6 +203,7 @@ def sample_semantic_with_ras(
             positions,
             False,
             RAS_DRAW_STREAM,
+            keep_top_p_crossing_token=True,
         )
     ]
     is_repeat = (previous_main_tokens == first_draw.unsqueeze(-1)).any(dim=-1)
